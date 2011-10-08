@@ -24,7 +24,7 @@ class LastFM(object):
 		track_pre = urlopen('http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=&limit=1' % (self.user, self.key)).read()
 		try:
 			track = findall(self.regexp, track_pre)[0]
-			return '%s - %s' %(track[0], track[1])
+			return '[url=http://www.lastfm.ru/music/{0}/_/{1}]{0} - {1}[/url]'.format(track[0], track[1])
 		except:
 			return None
 
