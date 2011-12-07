@@ -1,12 +1,6 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
-#
-#  bot.py
-#  lastfm2simplemachine poster
-#
-#  Created by d1ffuz0r on 2011-10-04.
-#  Copyright 2011 d1ffuz0r. All rights reserved.
-#
+__version__ = '0.0.2'
 
 from urllib2 import urlopen, Request, build_opener,\
     install_opener, HTTPCookieProcessor
@@ -15,31 +9,64 @@ from re import findall, compile, M
 from cookielib import CookieJar
 from urllib import urlencode
 from time import sleep
+import logging
+import xml.etree.ElementTree as Tree
+
+# create logger
+logger = logging.getLogger('lastm2planet')
+logger.setLevel(logging.DEBUG)
+
+lh = logging.FileHandler('www/lastm2planet.log')
+lh.setLevel(logging.DEBUG)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+lh.setFormatter(formatter)
+logger.addHandler(lh)
 
 
 class LastFM(object):
-    def __init__(self, user):
+    """Last.fm parser class
+
+    Keyword arguments:
+    user -- login on http://last.fm
+    key -- last.km api key
+
+    """
+    def __init__(self, user, key):
         self.user = user
-        self.regexp = compile(r'<track\snowplaying="true">.\n............<artist.*>(.*?)</artist>\n<name>(.*?)</name>', M)
+        self.key = key
 
     def get_track(self):
-        track_pre = urlopen("""http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=b25b959554ed76058ac220b7b2e0a026&limit=1""" % self.user).read()
-        try:
-            track = findall(self.regexp, track_pre)[0]
-            return '[url=http://www.lastfm.ru/music/{0}/_/{1}]{0} - {1}[/url]' \
-                .format(track[0], track[1])
-        except:
+        """Get text post for forum"""
+        page = urlopen("""http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&limit=1""" % (self.user, self.key))
+        p = Tree.fromstring(page.read())
+
+        if 'nowplaying' in p.find('recenttracks/track').attrib:
+            track = '[url=http://www.lastfm.ru/music/{0}/_/{1}]{0} - {1}[/url]' \
+                .format(p.find('recenttracks/track/artist').text.encode('utf-8'),
+                        p.find('recenttracks/track/name').text.encode('utf-8'))
+            return track
+        else:
             return None
 
 
 class SMachine(object):
+    """Simplemagine forum poster
+
+    Keyword arguments
+    username -- login on forum
+    password -- password on forum
+    topic -- topic on forum
+
+    """
     def __init__(self, username, password, topic):
         self.topic = topic
         self.regexp = compile(r'<input type="hidden" name="last_msg" value="(.*?)" />|<input type="hidden" name="seqnum" value="(.*?)" />|<li><a\sclass="button_strip_mark_unread"\shref="(.*)">')
         cookie = CookieJar()
         opener = build_opener(HTTPCookieProcessor(cookie))
         install_opener(opener)
-        headers = {"User-Agent": "Mozilla/4.0 (compatible; MSIE 7; WindowsNT)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/535.2 (KHTML, like Gecko) Chrome/15.0.874.121 Safari/535.2"}
         send_data = urlencode({"user": username,
                                "passwrd": password,
                                "cookieneverexp": "checked"})
@@ -47,6 +74,7 @@ class SMachine(object):
             send_data, headers)).read()
 
     def send_post(self, message):
+        """Send post"""
         pr = urlopen('http://www.forum.l2planet.ws/index.php?topic=%s' % \
             self.topic).read()
         data = findall(self.regexp, pr)
@@ -62,34 +90,39 @@ class SMachine(object):
                                 session[0]: session[1],
                                "seqnum": data[2][0],
                                "message": message})
-        request = Request("http://www.forum.l2planet.ws/index.php?board=11; action=post2",\
-            send_data)
+        request = Request("http://www.forum.l2planet.ws/index.php?board=11; action=post2", send_data)
         urlopen(request)
 
 
 class Engine(object):
-    def __init__(self, lastfm_username, forum_username,
-                 forum_password, topic_id, time):
-        """
-        lastfm_username: last.fm username
-        forum_username: forum login
-        forum_password: forum password
-        topic_id: topic id(for posting)
-        time: pause(in minutes)
+    def __init__(self, lastfm_username, api_key, forum_username,
+                 forum_password, topic_id, time=30):
+        """Engine
+
+        Keyword arguments:
+        lastfm_username -- last.fm username
+        api_key -- key for api last.fm
+        forum_username -- forum login
+        forum_password -- forum password
+        topic_id -- topic id(for posting)
+        time -- pause in minutes. default(30)
+
         """
         self.time = time
-        self.lastfm = LastFM(lastfm_username)
+        self.lastfm = LastFM(lastfm_username, api_key)
         self.forum = SMachine(forum_username, forum_password, topic_id)
 
     def action(self):
+        """Get post text and send"""
         track = self.lastfm.get_track()
         if track:
-            print track
+            logger.warning(track)
             self.forum.send_post(track)
         else:
-            print "error"
+            logger.warning("not playing")
 
     def start(self):
+        """Start engine"""
         while True:
             self.action()
             sleep(60 * self.time)
