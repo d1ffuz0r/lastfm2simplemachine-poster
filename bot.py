@@ -39,14 +39,12 @@ class LastFM(object):
 
     def get_track(self):
         """Get text post for forum"""
-        page = urlopen("""http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&limit=1""" % (self.user, self.key))
+        page = urlopen("http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&limit=1" % (self.user, self.key))
         p = Tree.fromstring(page.read())
 
         if 'nowplaying' in p.find('recenttracks/track').attrib:
-            track = '[url=http://www.lastfm.ru/music/{0}/_/{1}]{0} - {1}[/url]' \
-                .format(p.find('recenttracks/track/artist').text.encode('utf-8'),
-                        p.find('recenttracks/track/name').text.encode('utf-8'))
-            return track
+            return '[url=http://www.lastfm.ru/music/{0}/_/{1}]{0} - {1}[/url]'.format(p.find('recenttracks/track/artist').text.encode('utf-8'),
+                p.find('recenttracks/track/name').text.encode('utf-8'))
         else:
             return None
 
@@ -75,8 +73,7 @@ class SMachine(object):
 
     def send_post(self, message):
         """Send post"""
-        pr = urlopen('http://www.forum.l2planet.ws/index.php?topic=%s' % \
-            self.topic).read()
+        pr = urlopen('http://www.forum.l2planet.ws/index.php?topic=%s' % self.topic).read()
         data = findall(self.regexp, pr)
         session = parse_qsl(str(urlsplit(data[0][2]).query))[4]
         send_data = urlencode({"topic": self.topic,
@@ -85,12 +82,13 @@ class SMachine(object):
                                "from_qr": 1,
                                "notify": 0,
                                "not_approved": "",
-                               "goback": 1,
+                               "goback": 0,
                                "last_msg": data[3][1],
                                 session[0]: session[1],
                                "seqnum": data[2][0],
-                               "message": message})
-        request = Request("http://www.forum.l2planet.ws/index.php?board=11; action=post2", send_data)
+                               "message": message,
+                               "post": "Post"})
+        request = Request("http://www.forum.l2planet.ws/index.php?board=23;action=post2", send_data)
         urlopen(request)
 
 
@@ -116,8 +114,8 @@ class Engine(object):
         """Get post text and send"""
         track = self.lastfm.get_track()
         if track:
-            logger.warning(track)
             self.forum.send_post(track)
+            logger.info(track)
         else:
             logger.warning("not playing")
 
