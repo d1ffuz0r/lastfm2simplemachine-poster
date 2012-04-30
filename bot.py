@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
-__version__ = '0.0.2'
+__version__ = '0.0.4'
 
 from urllib2 import urlopen, Request, build_opener,\
     install_opener, HTTPCookieProcessor
@@ -8,56 +8,53 @@ from urlparse import parse_qsl, urlsplit
 from re import findall, compile, M
 from cookielib import CookieJar
 from urllib import urlencode
-from time import sleep
 import logging
+from os import path, curdir
 import xml.etree.ElementTree as Tree
+import sys
+sys.path.append("./xmpppy.egg")
+from xmpp import JID, Client, Message
 
-# create logger
 logger = logging.getLogger('lastm2planet')
 logger.setLevel(logging.DEBUG)
-
 lh = logging.FileHandler('www/lastm2planet.log')
 lh.setLevel(logging.DEBUG)
-
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 lh.setFormatter(formatter)
 logger.addHandler(lh)
 
 
-class LastFM(object):
-    """Last.fm parser class
+def send_psto(jid, password, message):
+    jid = JID(jid)
+    conn = Client(jid.getDomain(), debug=[])
 
-    Keyword arguments:
-    user -- login on http://last.fm
-    key -- last.km api key
+    if not conn.connect():
+        logger.error("not connect to jabber")
+    if not conn.auth(jid.getNode(), password, "Lastfm2Jabber"):
+        logger.error("error auth to jabber")
+    try:
+        conn.send(Message(to="psto@psto.net",
+                          body="* bot, /mu/ // %s" % message))
+    except:
+        logger.error("error sending message")
 
-    """
-    def __init__(self, user, key):
-        self.user = user
-        self.key = key
 
-    def get_track(self):
-        """Get text post for forum"""
-        page = urlopen("http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&limit=1" % (self.user, self.key))
-        p = Tree.fromstring(page.read())
+def get_track(user, key):
+    page = urlopen("http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=%s&api_key=%s&limit=1"
+                   % (user, key))
+    p = Tree.fromstring(page.read())
 
-        if 'nowplaying' in p.find('recenttracks/track').attrib:
-            return '[url=http://www.lastfm.ru/music/{0}/_/{1}]{0} - {1}[/url]'.format(p.find('recenttracks/track/artist').text.encode('utf-8'),
-                p.find('recenttracks/track/name').text.encode('utf-8'))
-        else:
-            return None
+    if 'nowplaying' in p.find('recenttracks/track').attrib:
+        return '{0} - {1}'.format(
+            p.find('recenttracks/track/artist').text.encode('utf-8'),
+            p.find('recenttracks/track/name').text.encode('utf-8')
+        )
+    else:
+        return None
 
 
 class SMachine(object):
-    """Simplemagine forum poster
 
-    Keyword arguments
-    username -- login on forum
-    password -- password on forum
-    topic -- topic on forum
-
-    """
     def __init__(self, username, password, topic):
         self.topic = topic
         self.regexp = compile(r'<input type="hidden" name="last_msg" value="(.*?)" />|<input type="hidden" name="seqnum" value="(.*?)" />|<li><a\sclass="button_strip_mark_unread"\shref="(.*)">')
@@ -72,7 +69,6 @@ class SMachine(object):
             send_data, headers)).read()
 
     def send_post(self, message):
-        """Send post"""
         pr = urlopen('http://www.forum.l2planet.ws/index.php?topic=%s' % self.topic).read()
         data = findall(self.regexp, pr)
         session = parse_qsl(str(urlsplit(data[0][2]).query))[4]
@@ -92,39 +88,21 @@ class SMachine(object):
         urlopen(request)
 
 
-class Engine(object):
-    def __init__(self, lastfm_username, api_key, forum_username,
-                 forum_password, topic_id, time=30):
-        """Engine
+def push(lastfm_username, api_key,
+         forum_username, forum_password, topic_id,
+         jabber_jid, jabber_pass):
+    forum = SMachine(forum_username, forum_password, topic_id)
+    track = get_track(lastfm_username, api_key)
 
-        Keyword arguments:
-        lastfm_username -- last.fm username
-        api_key -- key for api last.fm
-        forum_username -- forum login
-        forum_password -- forum password
-        topic_id -- topic id(for posting)
-        time -- pause in minutes. default(30)
+    if track:
+        forum.send_post(track)
+        send_psto(jabber_jid, jabber_pass, track)
+        logger.info(track)
+    else:
+        logger.warning("not playing")
 
-        """
-        self.time = time
-        self.lastfm = LastFM(lastfm_username, api_key)
-        self.forum = SMachine(forum_username, forum_password, topic_id)
-
-    def action(self):
-        """Get post text and send"""
-        track = self.lastfm.get_track()
-        if track:
-            self.forum.send_post(track)
-            logger.info(track)
-        else:
-            logger.warning("not playing")
-
-    def start(self):
-        """Start engine"""
-        while True:
-            self.action()
-            sleep(60 * self.time)
 
 if __name__ == '__main__':
-    engine = Engine("name", "key", "login", "password", 16670, 30)
-    engine.start()
+    push("lastfm_login", "lastfm_key_api",
+         "forum_login", "forum_password", 16670,
+         "jid", "jabber_password")
